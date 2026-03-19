@@ -564,13 +564,18 @@ func CaptureKubectlWithTimeout(args []string, timeout time.Duration) (string, er
 	return string(b), err
 }
 
+// shouldConfirm returns true when a mutating kubectl command should prompt for
+// user confirmation before executing.
 func shouldConfirm(args []string, force bool) bool {
 	if force || len(args) == 0 {
 		return false
 	}
-	// Never prompt for confirmation on help requests
+	// Never prompt for confirmation on help requests or --yes
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
+			return false
+		}
+		if a == "--yes" {
 			return false
 		}
 	}

@@ -20,8 +20,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	kcfg "github.com/kubilitics/kcli/internal/config"
 	"github.com/kubilitics/kcli/internal/filelock"
+	"github.com/kubilitics/kcli/internal/output"
 	"github.com/kubilitics/kcli/internal/plugin"
 	"github.com/spf13/cobra"
 )
@@ -208,31 +210,57 @@ Example output:
 				return nil
 			}
 
-			fmt.Fprintf(a.stdout, "%-24s  %-14s  %-24s  %-6s  %-8s  %s\n",
-				"TIMESTAMP", "PLUGIN", "ARGS", "EXIT", "DURATION", "SANDBOX")
-			fmt.Fprintf(a.stdout, "%s\n", strings.Repeat("─", 90))
+			theme := output.GetTheme()
+			table := output.NewTable()
+			table.Style = output.Rounded
+			table.AddColumn(output.Column{
+				Name:     "TIMESTAMP",
+				Priority: output.PriorityContext,
+				MinWidth: 20,
+				MaxWidth: 26,
+				ColorFunc: func(_ string) lipgloss.Style {
+					return theme.Muted
+				},
+			})
+			table.AddColumn(output.Column{
+				Name:     "PLUGIN",
+				Priority: output.PriorityAlways,
+				MinWidth: 10,
+				MaxWidth: 20,
+			})
+			table.AddColumn(output.Column{
+				Name:     "ARGS",
+				Priority: output.PrioritySecondary,
+				MinWidth: 10,
+				MaxWidth: 30,
+			})
+			table.AddColumn(output.Column{
+				Name:     "EXIT CODE",
+				Priority: output.PriorityCritical,
+				MinWidth: 9,
+				MaxWidth: 10,
+				ColorFunc: func(value string) lipgloss.Style {
+					if value == "0" {
+						return theme.StatusReady
+					}
+					return theme.StatusError
+				},
+			})
+			table.AddColumn(output.Column{
+				Name:     "DURATION",
+				Priority: output.PrioritySecondary,
+				MinWidth: 8,
+				MaxWidth: 12,
+				Align:    output.Right,
+			})
+
 			for _, e := range entries {
-				exitStr := "0"
-				if e.ExitCode != 0 {
-					exitStr = fmt.Sprintf("%d", e.ExitCode)
-				}
+				exitStr := fmt.Sprintf("%d", e.ExitCode)
 				argsStr := strings.Join(e.Args, " ")
-				if len(argsStr) > 24 {
-					argsStr = argsStr[:21] + "..."
-				}
-				sandbox := e.Sandbox
-				if sandbox == "" {
-					sandbox = "-"
-				}
-				fmt.Fprintf(a.stdout, "%-24s  %-14s  %-24s  %-6s  %5dms  %s\n",
-					e.TS,
-					truncate(e.Name, 14),
-					truncate(argsStr, 24),
-					exitStr,
-					e.DurationMS,
-					sandbox,
-				)
+				durationStr := fmt.Sprintf("%dms", e.DurationMS)
+				table.AddRow([]string{e.TS, e.Name, argsStr, exitStr, durationStr})
 			}
+			table.PrintTo(a.stdout)
 			return nil
 		},
 	}
@@ -307,33 +335,76 @@ func newAuditLogCmd(a *app) *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintf(a.stdout, "\n%s%s kcli Audit Log%s\n\n", ansiBold, ansiCyan, ansiReset)
+			theme := output.GetTheme()
+			fmt.Fprintf(a.stdout, "\n%s\n\n", theme.Header.Render(" kcli Audit Log"))
 
 			if len(filtered) == 0 {
-				fmt.Fprintf(a.stdout, "%s(no audit records found)%s\n\n", ansiGray, ansiReset)
+				fmt.Fprintf(a.stdout, "%s\n\n", theme.Muted.Render("(no audit records found)"))
 				fmt.Fprintf(a.stdout, "Audit logging records mutating kcli commands automatically.\n")
 				fmt.Fprintf(a.stdout, "Run any command like `kcli apply`, `kcli delete`, `kcli scale` to create records.\n\n")
 				return nil
 			}
 
+			table := output.NewTable()
+			table.Style = output.Rounded
+			table.AddColumn(output.Column{
+				Name:     "TIMESTAMP",
+				Priority: output.PriorityContext,
+				MinWidth: 20,
+				MaxWidth: 26,
+				ColorFunc: func(_ string) lipgloss.Style {
+					return theme.Muted
+				},
+			})
+			table.AddColumn(output.Column{
+				Name:     "USER",
+				Priority: output.PrioritySecondary,
+				MinWidth: 10,
+				MaxWidth: 20,
+			})
+			table.AddColumn(output.Column{
+				Name:     "COMMAND",
+				Priority: output.PriorityAlways,
+				MinWidth: 10,
+				MaxWidth: 50,
+			})
+			table.AddColumn(output.Column{
+				Name:     "CONTEXT",
+				Priority: output.PrioritySecondary,
+				MinWidth: 10,
+				MaxWidth: 30,
+			})
+			table.AddColumn(output.Column{
+				Name:     "RESULT",
+				Priority: output.PriorityCritical,
+				MinWidth: 7,
+				MaxWidth: 10,
+				ColorFunc: func(value string) lipgloss.Style {
+					switch value {
+					case "success":
+						return theme.StatusReady
+					case "error":
+						return theme.StatusError
+					default:
+						return lipgloss.NewStyle()
+					}
+				},
+			})
+
 			for _, r := range filtered {
-				resultColor := ansiGreen
-				if r.Result == "error" {
-					resultColor = ansiRed
+				cmdStr := "kcli " + r.Command
+				if r.Args != "" {
+					cmdStr += " " + r.Args
 				}
-				fmt.Fprintf(a.stdout, "%s%-20s%s  %-20s  kcli %s %s\n",
-					ansiGray, r.Timestamp, ansiReset,
-					truncate(r.User, 20),
-					r.Command,
-					truncate(r.Args, 50),
-				)
+				ctx := ""
 				if r.Context != "" || r.Namespace != "" {
-					fmt.Fprintf(a.stdout, "               %s[ctx:%s ns:%s] %s%s%s\n",
-						ansiGray, r.Context, r.Namespace,
-						resultColor, r.Result, ansiReset)
+					ctx = r.Context + "/" + r.Namespace
 				}
+				table.AddRow([]string{r.Timestamp, r.User, cmdStr, ctx, r.Result})
 			}
-			fmt.Fprintf(a.stdout, "\n%s%d records%s\n\n", ansiGray, len(filtered), ansiReset)
+
+			table.SetFooter([]string{fmt.Sprintf("%d records", len(filtered)), "", "", "", ""})
+			table.PrintTo(a.stdout)
 			return nil
 		},
 	}

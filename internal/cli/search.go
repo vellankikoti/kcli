@@ -12,8 +12,18 @@ func newSearchCmd(a *app) *cobra.Command {
 	var groupName string
 	var resourceKinds string
 	cmd := &cobra.Command{
-		Use:     "search <query>",
-		Short:   "Search resources across contexts",
+		Use:   "search <query> [flags]",
+		Short: "Search resources across contexts",
+		Long: `Search for resources by name across one or more kubectl contexts.
+
+Queries all resource types by default. Use --kinds to limit to specific types.
+Use --context-group to search within a named group of contexts.
+
+Examples:
+  kcli search nginx                                # search current context
+  kcli search payment --kinds=deployment,service   # search specific types
+  kcli search redis --context-group=production     # search a context group
+  kcli search api --kinds=pod                      # search pods only`,
 		GroupID: "workflow",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

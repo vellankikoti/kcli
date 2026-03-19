@@ -136,6 +136,8 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 		newContextCmd(a),
 		newNamespaceCmd(a),
 		newSearchCmd(a),
+		newFindCmd(a),
+		newShowCmd(a),
 		// ── Observability ───────────────────────────────────────────────────
 		newHealthCmd(a),
 		newMetricsCmd(a),
@@ -143,6 +145,11 @@ func newRootCommand(in io.Reader, out, errOut io.Writer) *cobra.Command {
 		newInstabilityCmd(a),
 		newEventsCmd(a),
 		newBlameCmd(a),
+		newAgeCmd(a),
+		newCountCmd(a),
+		newStatusCmd(a),
+		newWhereCmd(a),
+		newWhoCmd(a),
 		// ── Incident ────────────────────────────────────────────────────────
 		newIncidentCmd(a),
 		// ── RBAC & Audit ────────────────────────────────────────────────────
@@ -250,11 +257,12 @@ func IsBuiltinFirstArg(name string) bool {
 		// Shortcuts
 		"kgp",
 		// Navigation
-		"ctx", "ns", "search",
+		"ctx", "ns", "search", "find", "show",
 		// Config & infrastructure
 		"plugin", "config", "kubeconfig", "prompt",
 		// Observability
 		"health", "metrics", "restarts", "instability", "blame",
+		"age", "count", "status", "where", "who",
 		// Incident & RBAC
 		"incident", "rbac", "audit",
 		// TUI

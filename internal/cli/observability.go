@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kubilitics/kcli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -123,11 +124,11 @@ Examples:
 				}
 			}
 			// Combined view: nodes then pods
-			fmt.Fprintln(cmd.OutOrStdout(), "=== Node Metrics ===")
+			fmt.Fprintln(cmd.OutOrStdout(), output.GetTheme().Header.Render("── Node Metrics ──"))
 			if err := a.runKubectl([]string{"top", "nodes"}); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not fetch node metrics: %v\n", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "\n=== Pod Metrics (top by CPU) ===")
+			fmt.Fprintln(cmd.OutOrStdout(), "\n"+output.GetTheme().Header.Render("── Pod Metrics (top by CPU) ──"))
 			return a.runKubectl([]string{"top", "pods", "-A", "--sort-by=cpu"})
 		},
 	}
@@ -137,9 +138,19 @@ Examples:
 func newHealthCmd(a *app) *cobra.Command {
 	var outputFlag string
 	cmd := &cobra.Command{
-		Use:       "health [pods|nodes]",
-		Short:     "Cluster and resource health summary",
-		GroupID:   "observability",
+		Use:   "health [pods|nodes]",
+		Short: "Cluster and resource health summary",
+		Long: `Show an overall health score for the cluster, or drill into pod/node health.
+
+Without arguments, computes a 0-100 health score based on node readiness,
+pod phases, CrashLoopBackOff counts, and pressure conditions.
+
+Examples:
+  kcli health              # overall cluster health score + issues
+  kcli health pods         # pod-specific health summary
+  kcli health nodes        # node-specific health summary
+  kcli health -o json      # machine-readable JSON output`,
+		GroupID: "observability",
 		Args:      cobra.MaximumNArgs(1),
 		ValidArgs: []string{"pods", "nodes"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -223,15 +234,39 @@ func printOverallHealth(a *app, cmd *cobra.Command, ofmt output.Format) error {
 	if score < 50 {
 		label = "UNHEALTHY"
 	}
-	fmt.Fprintf(w, "Health Score: %d/100 (%s)\n", score, label)
+
+	// Score table
+	scoreTable := output.NewTable()
+	scoreTable.Style = output.Rounded
+	scoreTable.AddColumn(output.Column{Name: "METRIC", Priority: output.PriorityAlways, MinWidth: 15, MaxWidth: 25, Align: output.Left})
+	scoreTable.AddColumn(output.Column{Name: "VALUE", Priority: output.PriorityAlways, MinWidth: 10, MaxWidth: 30, Align: output.Left})
+	scoreTable.AddRow([]string{"Health Score", fmt.Sprintf("%d/100 (%s)", score, label)})
+	scoreTable.PrintTo(w)
+
 	printPodHealthSummary(cmd, pods)
 	printNodeHealthSummary(cmd, nodes)
 
 	if len(issues) > 0 {
-		fmt.Fprintln(w, "\nIssues:")
+		fmt.Fprintln(w)
+		issueTable := output.NewTable()
+		issueTable.Style = output.Rounded
+		issueTable.AddColumn(output.Column{Name: "SEVERITY", Priority: output.PriorityCritical, MinWidth: 8, MaxWidth: 12, Align: output.Left, ColorFunc: func(value string) lipgloss.Style {
+			theme := output.GetTheme()
+			switch value {
+			case "CRITICAL":
+				return theme.Error
+			case "WARNING":
+				return theme.Warning
+			default:
+				return theme.Info
+			}
+		}})
+		issueTable.AddColumn(output.Column{Name: "RESOURCE", Priority: output.PriorityCritical, MinWidth: 15, MaxWidth: 35, Align: output.Left})
+		issueTable.AddColumn(output.Column{Name: "MESSAGE", Priority: output.PriorityAlways, MinWidth: 20, MaxWidth: 60, Align: output.Left})
 		for _, iss := range issues {
-			fmt.Fprintf(w, "  [%s] %s: %s\n", iss.Severity, iss.Resource, iss.Message)
+			issueTable.AddRow([]string{iss.Severity, iss.Resource, iss.Message})
 		}
+		issueTable.PrintTo(w)
 	}
 	return nil
 }
@@ -294,8 +329,17 @@ func newRestartsCmd(a *app) *cobra.Command {
 	var threshold int
 	var outputFlag string
 	cmd := &cobra.Command{
-		Use:     "restarts",
-		Short:   "List pods sorted by restart count",
+		Use:   "restarts",
+		Short: "List pods sorted by restart count",
+		Long: `List all containers that have restarted, sorted by restart count (descending).
+
+Useful for spotting CrashLoopBackOff pods and recurring OOMKills.
+
+Examples:
+  kcli restarts                   # all containers with >= 1 restart
+  kcli restarts --threshold 5     # only containers with >= 5 restarts
+  kcli restarts --recent 30m      # only restarts in last 30 minutes
+  kcli restarts -o json           # machine-readable JSON output`,
 		GroupID: "observability",
 		RunE: func(c *cobra.Command, _ []string) error {
 			ofmt, err := output.ParseFlag(outputFlag)
@@ -387,38 +431,77 @@ func printRestartTableTo(w io.Writer, records []restartRecord) {
 		fmt.Fprintln(w, "No restarted pods found.")
 		return
 	}
-	fmt.Fprintf(w, "%-16s %-30s %-18s %-8s %-18s %-20s\n", "NAMESPACE", "POD", "CONTAINER", "COUNT", "REASON", "LAST RESTART")
+	table := output.NewResourceTable(output.ResourceTableOpts{Scope: output.ScopeNamespaced})
+	table.AddNameColumn("POD")
+	table.AddColumn(output.Column{
+		Name:     "CONTAINER",
+		Priority: output.PrioritySecondary,
+		MinWidth: 10,
+		MaxWidth: 25,
+		Align:    output.Left,
+	})
+	table.AddColumn(output.Column{
+		Name:      "COUNT",
+		Priority:  output.PriorityCritical,
+		MinWidth:  5,
+		MaxWidth:  10,
+		Align:     output.Right,
+		ColorFunc: output.RestartColorFunc(),
+	})
+	table.AddColumn(output.Column{
+		Name:      "REASON",
+		Priority:  output.PrioritySecondary,
+		MinWidth:  10,
+		MaxWidth:  25,
+		Align:     output.Left,
+		ColorFunc: output.StatusColorFunc("pod"),
+	})
+	table.AddColumn(output.Column{
+		Name:     "LAST RESTART",
+		Priority: output.PrioritySecondary,
+		MinWidth: 12,
+		MaxWidth: 22,
+		Align:    output.Left,
+	})
 	for _, r := range records {
 		last := "-"
 		if !r.LastAt.IsZero() {
 			last = r.LastAt.Format("2006-01-02 15:04:05")
 		}
-		reason := emptyDash(r.Reason)
-		fmt.Fprintf(w, "%-16s %-30s %-18s %-8d %-18s %-20s\n",
-			truncateCell(r.Namespace, 16),
-			truncateCell(r.Name, 30),
-			truncateCell(r.Container, 18),
-			r.Restarts,
-			truncateCell(reason, 18),
+		table.AddRow([]string{
+			r.Namespace,
+			r.Name,
+			emptyDash(r.Container),
+			fmt.Sprintf("%d", r.Restarts),
+			emptyDash(r.Reason),
 			last,
-		)
+		})
 	}
+	table.PrintTo(w)
 }
 
 func newInstabilityCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "instability",
-		Short:   "Quick instability snapshot (restarts + warning events)",
+		Use:   "instability",
+		Short: "Quick instability snapshot (restarts + warning events)",
+		Long: `Show a combined instability snapshot: restart leaders and recent warning events.
+
+This is a convenience command that combines 'kcli restarts' and 'kcli events --type=Warning'
+into a single view for rapid triage.
+
+Examples:
+  kcli instability          # restart leaders + recent warning events
+  kcli instability pods     # pod-only instability (restart leaders only)`,
 		GroupID: "observability",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "== Restart Leaders ==")
+			fmt.Fprintln(cmd.OutOrStdout(), output.GetTheme().Header.Render("── Restart Leaders ──"))
 			pods, err := fetchPods(cmd.Context(), a)
 			if err != nil {
 				return err
 			}
 			printRestartTable(cmd, buildRestartRecords(pods, 1, time.Time{}))
 
-			fmt.Fprintln(cmd.OutOrStdout(), "\n== Recent Warning Events ==")
+			fmt.Fprintln(cmd.OutOrStdout(), "\n"+output.GetTheme().Header.Render("── Recent Warning Events ──"))
 			records, err := fetchEvents(cmd.Context(), a)
 			if err != nil {
 				return err
@@ -458,8 +541,21 @@ func newEventsCmd(a *app) *cobra.Command {
 	var sortOrder string
 	var watch bool
 	cmd := &cobra.Command{
-		Use:     "events",
-		Short:   "View cluster events",
+		Use:   "events",
+		Short: "View cluster events",
+		Long: `View Kubernetes cluster events with filtering, sorting, and watch support.
+
+By default, shows events from the last hour. Use --all to remove the time filter.
+
+Examples:
+  kcli events                          # events from last hour (newest first)
+  kcli events --type=Warning           # only warning events
+  kcli events --recent=30m             # events from last 30 minutes
+  kcli events --watch                  # live-stream events (wraps kubectl --watch)
+  kcli events --resource pod/nginx     # events for a specific resource
+  kcli events --all                    # all events, no time filter
+  kcli events --sort=oldest            # oldest events first
+  kcli events -o json                  # machine-readable JSON output`,
 		GroupID: "observability",
 		RunE: func(c *cobra.Command, _ []string) error {
 			if watch {
@@ -622,15 +718,37 @@ func healthScore(pods podHealthSummary, nodes nodeHealthSummary) int {
 }
 
 func printPodHealthSummary(cmd *cobra.Command, s podHealthSummary) {
-	fmt.Fprintln(cmd.OutOrStdout(), "\nPods:")
-	fmt.Fprintf(cmd.OutOrStdout(), "  total=%d running=%d pending=%d failed=%d succeeded=%d\n", s.Total, s.Running, s.Pending, s.Failed, s.Succeeded)
-	fmt.Fprintf(cmd.OutOrStdout(), "  restartPods=%d totalRestarts=%d crashLoop=%d\n", s.RestartPods, s.TotalRestarts, s.CrashLoop)
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w)
+	table := output.NewTable()
+	table.Style = output.Rounded
+	table.AddColumn(output.Column{Name: "POD METRIC", Priority: output.PriorityAlways, MinWidth: 15, MaxWidth: 25, Align: output.Left})
+	table.AddColumn(output.Column{Name: "VALUE", Priority: output.PriorityAlways, MinWidth: 8, MaxWidth: 15, Align: output.Right})
+	table.AddRow([]string{"Total", fmt.Sprintf("%d", s.Total)})
+	table.AddRow([]string{"Running", fmt.Sprintf("%d", s.Running)})
+	table.AddRow([]string{"Pending", fmt.Sprintf("%d", s.Pending)})
+	table.AddRow([]string{"Failed", fmt.Sprintf("%d", s.Failed)})
+	table.AddRow([]string{"Succeeded", fmt.Sprintf("%d", s.Succeeded)})
+	table.AddRow([]string{"Restart Pods", fmt.Sprintf("%d", s.RestartPods)})
+	table.AddRow([]string{"Total Restarts", fmt.Sprintf("%d", s.TotalRestarts)})
+	table.AddRow([]string{"CrashLoop", fmt.Sprintf("%d", s.CrashLoop)})
+	table.PrintTo(w)
 }
 
 func printNodeHealthSummary(cmd *cobra.Command, s nodeHealthSummary) {
-	fmt.Fprintln(cmd.OutOrStdout(), "\nNodes:")
-	fmt.Fprintf(cmd.OutOrStdout(), "  total=%d ready=%d notReady=%d\n", s.Total, s.Ready, s.NotReady)
-	fmt.Fprintf(cmd.OutOrStdout(), "  pressure(memory=%d disk=%d pid=%d)\n", s.MemoryPress, s.DiskPress, s.PIDPress)
+	w := cmd.OutOrStdout()
+	fmt.Fprintln(w)
+	table := output.NewTable()
+	table.Style = output.Rounded
+	table.AddColumn(output.Column{Name: "NODE METRIC", Priority: output.PriorityAlways, MinWidth: 18, MaxWidth: 25, Align: output.Left})
+	table.AddColumn(output.Column{Name: "VALUE", Priority: output.PriorityAlways, MinWidth: 8, MaxWidth: 15, Align: output.Right})
+	table.AddRow([]string{"Total", fmt.Sprintf("%d", s.Total)})
+	table.AddRow([]string{"Ready", fmt.Sprintf("%d", s.Ready)})
+	table.AddRow([]string{"Not Ready", fmt.Sprintf("%d", s.NotReady)})
+	table.AddRow([]string{"Memory Pressure", fmt.Sprintf("%d", s.MemoryPress)})
+	table.AddRow([]string{"Disk Pressure", fmt.Sprintf("%d", s.DiskPress)})
+	table.AddRow([]string{"PID Pressure", fmt.Sprintf("%d", s.PIDPress)})
+	table.PrintTo(w)
 }
 
 func fetchEvents(ctx context.Context, a *app) ([]eventRecord, error) {
@@ -743,7 +861,45 @@ func printEventTableTo(w io.Writer, records []eventRecord) {
 		fmt.Fprintln(w, "No events found.")
 		return
 	}
-	fmt.Fprintf(w, "%-20s %-8s %-18s %-30s %-18s %s\n", "TIME", "TYPE", "NAMESPACE", "OBJECT", "REASON", "MESSAGE")
+	table := output.NewResourceTable(output.ResourceTableOpts{Scope: output.ScopeNamespaced})
+	table.AddColumn(output.Column{
+		Name:     "TIME",
+		Priority: output.PriorityCritical,
+		MinWidth: 12,
+		MaxWidth: 22,
+		Align:    output.Left,
+	})
+	table.AddColumn(output.Column{
+		Name:     "TYPE",
+		Priority: output.PriorityCritical,
+		MinWidth: 7,
+		MaxWidth: 10,
+		Align:    output.Left,
+		ColorFunc: func(value string) lipgloss.Style {
+			return output.EventTypeStyle(value)
+		},
+	})
+	table.AddColumn(output.Column{
+		Name:     "OBJECT",
+		Priority: output.PriorityCritical,
+		MinWidth: 15,
+		MaxWidth: 40,
+		Align:    output.Left,
+	})
+	table.AddColumn(output.Column{
+		Name:     "REASON",
+		Priority: output.PrioritySecondary,
+		MinWidth: 10,
+		MaxWidth: 25,
+		Align:    output.Left,
+	})
+	table.AddColumn(output.Column{
+		Name:     "MESSAGE",
+		Priority: output.PriorityExtended,
+		MinWidth: 20,
+		MaxWidth: 80,
+		Align:    output.Left,
+	})
 	for _, r := range records {
 		ts := "-"
 		if !r.Timestamp.IsZero() {
@@ -753,17 +909,16 @@ func printEventTableTo(w io.Writer, records []eventRecord) {
 		if len(msg) > 120 {
 			msg = msg[:117] + "..."
 		}
-		fmt.Fprintf(
-			w,
-			"%-20s %-8s %-18s %-30s %-18s %s\n",
+		table.AddRow([]string{
+			r.Namespace,
 			ts,
 			emptyDash(r.Type),
-			emptyDash(r.Namespace),
-			truncateCell(r.Object, 30),
-			truncateCell(r.Reason, 18),
+			r.Object,
+			emptyDash(r.Reason),
 			msg,
-		)
+		})
 	}
+	table.PrintTo(w)
 }
 
 func truncateCell(v string, limit int) string {

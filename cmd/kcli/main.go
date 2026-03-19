@@ -100,6 +100,8 @@ var nativeKCLICommands = map[string]bool{
 	"events": true, "metrics": true, "instability": true, "blame": true,
 	"incident": true, "rbac": true, "audit": true, "plugin": true,
 	"config": true, "kubeconfig": true, "prompt": true, "search": true,
+	"find": true, "show": true, "age": true, "count": true,
+	"status": true, "where": true, "who": true, "doctor": true,
 	"version": true, "completion": true, "ui": true, "help": true,
 }
 

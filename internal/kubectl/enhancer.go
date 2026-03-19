@@ -1,0 +1,120 @@
+package kubectl
+
+import (
+	"fmt"
+	"strings"
+)
+
+// ParseWithModifiers extracts "with" modifiers from command args.
+// Example: ["get", "pods", "with", "ip,node"] →
+//   verb="get", resource="pods", modifiers=["ip","node"], remainingArgs=[]
+func ParseWithModifiers(args []string) (verb string, resource string, modifiers []string, remainingArgs []string, err error) {
+	if len(args) < 2 {
+		return "", "", nil, args, fmt.Errorf("invalid command: expected at least verb and resource")
+	}
+
+	verb = strings.ToLower(args[0])
+	resource = strings.ToLower(args[1])
+
+	if verb != "get" {
+		return verb, resource, nil, args[2:], fmt.Errorf("'with' modifiers only supported with 'get' command")
+	}
+
+	withIdx := -1
+	for i := 2; i < len(args); i++ {
+		if strings.EqualFold(args[i], "with") {
+			withIdx = i
+			break
+		}
+	}
+
+	if withIdx == -1 {
+		return verb, resource, nil, args[2:], nil
+	}
+
+	if withIdx+1 >= len(args) {
+		return verb, resource, nil, args[2:], fmt.Errorf("'with' keyword requires modifiers")
+	}
+
+	modifierStr := args[withIdx+1]
+	modifiers = strings.Split(modifierStr, ",")
+
+	for i := range modifiers {
+		modifiers[i] = strings.TrimSpace(modifiers[i])
+		modifiers[i] = strings.ToLower(modifiers[i])
+	}
+
+	if withIdx+2 < len(args) {
+		remainingArgs = args[withIdx+2:]
+	}
+
+	return verb, resource, modifiers, remainingArgs, nil
+}
+
+// EnhancedGet performs a client-go API call and renders enriched output.
+// Routes to resource-specific handlers based on the resource type.
+func EnhancedGet(kubeconfigPath, context, namespace string, resource string, modifiers []string, allNamespaces bool, sortBy string, outputFormat string) error {
+	resource = strings.ToLower(resource)
+
+	switch resource {
+	case "pod", "pods", "po":
+		return enhancePods(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "deployment", "deployments", "deploy":
+		return enhanceDeployments(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "service", "services", "svc":
+		return enhanceServices(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "node", "nodes":
+		return enhanceNodes(kubeconfigPath, context, modifiers, sortBy, outputFormat)
+
+	case "persistentvolume", "persistentvolumes", "pv":
+		return enhancePersistentVolumes(kubeconfigPath, modifiers, sortBy, outputFormat)
+
+	case "persistentvolumeclaim", "persistentvolumeclaims", "pvc":
+		return enhancePersistentVolumeClaims(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "ingress", "ingresses", "ing":
+		return enhanceIngresses(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "event", "events", "ev":
+		return enhanceEvents(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "statefulset", "statefulsets", "sts":
+		return enhanceStatefulSets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "daemonset", "daemonsets", "ds":
+		return enhanceDaemonSets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	default:
+		return fmt.Errorf("'with' modifiers not supported for resource type: %s", resource)
+	}
+}
+
+func validateModifiers(resource string, requested []string, supported map[string]bool) error {
+	for _, mod := range requested {
+		if mod == "all" {
+			continue
+		}
+		if !supported[mod] {
+			return fmt.Errorf("modifier '%s' not supported for %s", mod, resource)
+		}
+	}
+	return nil
+}
+
+func parseAllModifier(requested []string, supported map[string]bool) []string {
+	for _, mod := range requested {
+		if mod == "all" {
+			expanded := make([]string, 0)
+			for key := range supported {
+				if key != "all" {
+					expanded = append(expanded, key)
+				}
+			}
+			return expanded
+		}
+	}
+	return requested
+}

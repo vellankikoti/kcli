@@ -174,39 +174,48 @@ func runBlame(a *app, cmd *cobra.Command, resource string, ofmt output.Format) e
 	}
 
 	// Table output
-	fmt.Fprintf(a.stdout, "\n%s%s Blame: %s/%s%s\n\n",
-		ansiBold, ansiCyan, kind, name, ansiReset)
-	fmt.Fprintf(a.stdout, "%sNamespace: %s%s\n\n", ansiGray, ns, ansiReset)
+	theme := output.GetTheme()
+
+	fmt.Fprintf(a.stdout, "\n%s\n\n", theme.Header.Render(fmt.Sprintf("Blame: %s/%s", kind, name)))
+	fmt.Fprintf(a.stdout, "%s\n\n", theme.Muted.Render(fmt.Sprintf("Namespace: %s", ns)))
 
 	if helmRelease != "" || argocdApp != "" || fluxSource != "" {
-		fmt.Fprintf(a.stdout, "%sSync source:%s\n", ansiBold, ansiReset)
+		syncTable := output.NewTable()
+		syncTable.Style = output.Rounded
+		syncTable.AddColumn(output.Column{Name: "SYNC SOURCE", Priority: output.PriorityAlways, MinWidth: 15, MaxWidth: 40})
+		syncTable.AddColumn(output.Column{Name: "VALUE", Priority: output.PriorityAlways, MinWidth: 15, MaxWidth: 50})
 		if helmRelease != "" {
-			fmt.Fprintf(a.stdout, "  Helm release: %s\n", helmRelease)
+			syncTable.AddRow([]string{"Helm release", helmRelease})
 		}
 		if argocdApp != "" {
-			fmt.Fprintf(a.stdout, "  ArgoCD app:  %s\n", argocdApp)
+			syncTable.AddRow([]string{"ArgoCD app", argocdApp})
 		}
 		if fluxSource != "" {
-			fmt.Fprintf(a.stdout, "  %s\n", fluxSource)
+			syncTable.AddRow([]string{"Flux", fluxSource})
 		}
+		syncTable.PrintTo(a.stdout)
 		fmt.Fprintln(a.stdout)
 	}
 
 	// Field managers
-	fmt.Fprintf(a.stdout, "%sField managers (managedFields):%s\n", ansiBold, ansiReset)
+	fmt.Fprintf(a.stdout, "%s\n", theme.Header.Render("Field managers (managedFields):"))
 	if len(entries) == 0 {
-		fmt.Fprintf(a.stdout, "  %s(no managedFields — resource may predate SSA or was created by legacy client)%s\n", ansiGray, ansiReset)
+		fmt.Fprintf(a.stdout, "  %s\n", theme.Muted.Render("(no managedFields — resource may predate SSA or was created by legacy client)"))
 	} else {
-		fmt.Fprintf(a.stdout, "  %-40s %-8s %-22s %s\n", "MANAGER", "OP", "WHEN", "SOURCE")
-		fmt.Fprintf(a.stdout, "  %s\n", strings.Repeat("─", 85))
+		table := output.NewTable()
+		table.Style = output.Rounded
+		table.AddColumn(output.Column{Name: "MANAGER", Priority: output.PriorityAlways, MinWidth: 20, MaxWidth: 40})
+		table.AddColumn(output.Column{Name: "OPERATION", Priority: output.PrioritySecondary, MinWidth: 8})
+		table.AddColumn(output.Column{Name: "WHEN", Priority: output.PriorityContext, MinWidth: 19})
+		table.AddColumn(output.Column{Name: "SOURCE", Priority: output.PrioritySecondary, MinWidth: 15})
 		for _, e := range entries {
 			when := "-"
 			if !e.When.IsZero() {
 				when = e.When.Format("2006-01-02 15:04:05")
 			}
-			fmt.Fprintf(a.stdout, "  %-40s %-8s %-22s %s\n",
-				truncate(e.Manager, 40), e.Operation, when, e.Source)
+			table.AddRow([]string{e.Manager, e.Operation, when, e.Source})
 		}
+		table.PrintTo(a.stdout)
 	}
 	fmt.Fprintln(a.stdout)
 	return nil

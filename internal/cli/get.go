@@ -34,6 +34,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/spf13/cobra"
+
+	kubectlpkg "github.com/kubilitics/kcli/internal/kubectl"
 )
 
 // crashHintEntry holds one pod that needs attention.
@@ -200,7 +202,7 @@ func printCrashHints(hints []crashHintEntry, stderr *os.File) {
 	fmt.Fprintf(stderr, "%s%sℹ  %d pod(s) need attention:%s\n", ansiBold, ansiYellow, len(hints), ansiReset)
 	for _, h := range hints {
 		fmt.Fprintf(stderr, "   %s•%s %-40s %s(%s)%s\n", ansiBold, ansiReset, h.PodName, ansiRed, h.Status, ansiReset)
-		fmt.Fprintf(stderr, "     → run: %skcli why pod/%s%s\n", ansiCyan, h.PodName, ansiReset)
+		fmt.Fprintf(stderr, "     → run: %skcli status pod/%s%s\n", ansiCyan, h.PodName, ansiReset)
 	}
 	fmt.Fprintf(stderr, "%s%s%s\n", ansiGray, sep, ansiReset)
 }
@@ -208,6 +210,74 @@ func printCrashHints(hints []crashHintEntry, stderr *os.File) {
 // stdoutIsTTY returns true when os.Stdout is connected to an interactive terminal.
 func stdoutIsTTY() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// hasWithModifier detects if args contain the "with" keyword for enhanced output.
+// Example: ["pods", "with", "ip,node"] → true
+func hasWithModifier(args []string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(arg, "with") {
+			return true
+		}
+	}
+	return false
+}
+
+// runEnhancedGet handles "kcli get <resource> with <modifiers>" by routing to
+// the kubectl enhancer engine which uses client-go for rich output.
+func (a *app) runEnhancedGet(args []string) error {
+	// Parse "with" modifiers from args — prepend "get" since Cobra already consumed it
+	_, resource, modifiers, remainingArgs, err := kubectlpkg.ParseWithModifiers(append([]string{"get"}, args...))
+	if err != nil {
+		return err
+	}
+
+	// Extract flags from remaining args
+	namespace := a.namespace
+	allNamespaces := false
+	sortBy := ""
+	outputFormat := ""
+	kubeconfigPath := a.kubeconfig
+
+	for i := 0; i < len(remainingArgs); i++ {
+		arg := remainingArgs[i]
+		switch {
+		case arg == "-A" || arg == "--all-namespaces":
+			allNamespaces = true
+		case arg == "-n" || arg == "--namespace":
+			if i+1 < len(remainingArgs) {
+				i++
+				namespace = remainingArgs[i]
+			}
+		case strings.HasPrefix(arg, "-n="):
+			namespace = strings.TrimPrefix(arg, "-n=")
+		case strings.HasPrefix(arg, "--namespace="):
+			namespace = strings.TrimPrefix(arg, "--namespace=")
+		case strings.HasPrefix(arg, "--sort-by="):
+			sortBy = strings.TrimPrefix(arg, "--sort-by=")
+		case arg == "-o" || arg == "--output":
+			if i+1 < len(remainingArgs) {
+				i++
+				outputFormat = remainingArgs[i]
+			}
+		case strings.HasPrefix(arg, "-o="):
+			outputFormat = strings.TrimPrefix(arg, "-o=")
+		case strings.HasPrefix(arg, "--output="):
+			outputFormat = strings.TrimPrefix(arg, "--output=")
+		case strings.HasPrefix(arg, "--kubeconfig="):
+			kubeconfigPath = strings.TrimPrefix(arg, "--kubeconfig=")
+		}
+	}
+
+	if kubeconfigPath == "" {
+		kubeconfigPath = os.Getenv("KUBECONFIG")
+		if kubeconfigPath == "" {
+			home, _ := os.UserHomeDir()
+			kubeconfigPath = home + "/.kube/config"
+		}
+	}
+
+	return kubectlpkg.EnhancedGet(kubeconfigPath, a.context, namespace, resource, modifiers, allNamespaces, sortBy, outputFormat)
 }
 
 // newGetCmd returns a first-class 'get' command with comprehensive help text.
@@ -287,6 +357,12 @@ Examples:
 				return err
 			}
 			defer restore()
+
+			// "with" modifier support: kcli get pods with ip,node
+			// Detect if the args contain "with" keyword for enhanced output.
+			if hasWithModifier(clean) {
+				return a.runEnhancedGet(clean)
+			}
 
 			// P1-5: Crash hint annotation — eligible when:
 			//   1. request targets pods with default table output
