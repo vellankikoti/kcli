@@ -1,6 +1,7 @@
 package output
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -31,7 +32,8 @@ type Column struct {
 	MaxWidth  int
 	Align     Alignment
 	ColorFunc func(value string) lipgloss.Style
-	origIndex int // set by adaptColumns to map back to row data index
+	origIndex int  // set by adaptColumns to map back to row data index
+	isAutoNum bool // true for auto-generated # column
 }
 
 type Table struct {
@@ -42,6 +44,7 @@ type Table struct {
 	SortDesc   bool
 	ShowFooter bool
 	FooterRow  []string
+	AutoNumber bool // when true, # column values are auto-populated during Render
 	mu         sync.RWMutex
 }
 
@@ -80,6 +83,14 @@ func (t *Table) AddColumn(col Column) {
 func (t *Table) AddRow(row []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// If AutoNumber is enabled, prepend an empty placeholder for the # column.
+	// The actual number is populated during Render().
+	if t.AutoNumber && (len(row) == 0 || row[0] != "") {
+		// Check if the first column is the auto-num column
+		if len(t.Columns) > 0 && t.Columns[0].isAutoNum {
+			row = append([]string{""}, row...)
+		}
+	}
 	t.Rows = append(t.Rows, row)
 }
 
@@ -100,6 +111,37 @@ func (t *Table) Render(width int) string {
 
 	if width <= 0 {
 		width = TermWidth()
+	}
+
+	// Auto-number: find the # column index and populate row values
+	if t.AutoNumber {
+		numColIdx := -1
+		for i, col := range t.Columns {
+			if col.isAutoNum {
+				numColIdx = i
+				break
+			}
+		}
+		if numColIdx >= 0 {
+			for rowIdx := range t.Rows {
+				// Ensure the row has enough slots
+				for len(t.Rows[rowIdx]) <= numColIdx {
+					t.Rows[rowIdx] = append(t.Rows[rowIdx], "")
+				}
+				t.Rows[rowIdx][numColIdx] = fmt.Sprintf("%d", rowIdx+1)
+			}
+			// Auto-add footer with total count if not already set
+			if !t.ShowFooter && len(t.Rows) > 0 {
+				footer := make([]string, len(t.Columns))
+				footer[numColIdx] = fmt.Sprintf("%d", len(t.Rows))
+				// Put "Total" in the next column after #
+				if numColIdx+1 < len(footer) {
+					footer[numColIdx+1] = fmt.Sprintf("Total: %d resources", len(t.Rows))
+				}
+				t.FooterRow = footer
+				t.ShowFooter = true
+			}
+		}
 	}
 
 	visibleCols := adaptColumns(t.Columns, width)

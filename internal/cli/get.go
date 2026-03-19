@@ -230,12 +230,18 @@ var enhanceableResources = map[string]bool{
 	"deployment": true, "deployments": true, "deploy": true,
 	"service": true, "services": true, "svc": true,
 	"node": true, "nodes": true,
+	"namespace": true, "namespaces": true, "ns": true,
 	"statefulset": true, "statefulsets": true, "sts": true,
 	"daemonset": true, "daemonsets": true, "ds": true,
+	"replicaset": true, "replicasets": true, "rs": true,
 	"persistentvolume": true, "persistentvolumes": true, "pv": true,
 	"persistentvolumeclaim": true, "persistentvolumeclaims": true, "pvc": true,
 	"ingress": true, "ingresses": true, "ing": true,
 	"event": true, "events": true, "ev": true,
+	"configmap": true, "configmaps": true, "cm": true,
+	"secret": true, "secrets": true,
+	"job": true, "jobs": true,
+	"cronjob": true, "cronjobs": true, "cj": true,
 }
 
 // shouldUseEnhancedGet returns true when args represent a simple resource list

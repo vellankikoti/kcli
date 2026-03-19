@@ -36,16 +36,26 @@ func ParseWithModifiers(args []string) (verb string, resource string, modifiers 
 		return verb, resource, nil, args[2:], fmt.Errorf("'with' keyword requires modifiers")
 	}
 
-	modifierStr := args[withIdx+1]
-	modifiers = strings.Split(modifierStr, ",")
-
-	for i := range modifiers {
-		modifiers[i] = strings.TrimSpace(modifiers[i])
-		modifiers[i] = strings.ToLower(modifiers[i])
-	}
-
-	if withIdx+2 < len(args) {
-		remainingArgs = args[withIdx+2:]
+	// Collect all modifier tokens after "with" until we hit a flag (-) or end.
+	// Supports both comma-separated ("ip,node") and space-separated ("ip node").
+	for i := withIdx + 1; i < len(args); i++ {
+		token := strings.TrimSpace(args[i])
+		if strings.HasPrefix(token, "-") {
+			// This is a flag — stop collecting modifiers, rest are remaining args
+			remainingArgs = args[i:]
+			break
+		}
+		// Split by comma in case of "ip,node" format
+		parts := strings.Split(token, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(strings.ToLower(p))
+			if p != "" {
+				modifiers = append(modifiers, p)
+			}
+		}
+		if i == len(args)-1 {
+			remainingArgs = nil
+		}
 	}
 
 	return verb, resource, modifiers, remainingArgs, nil
@@ -87,8 +97,27 @@ func EnhancedGet(kubeconfigPath, context, namespace string, resource string, mod
 	case "daemonset", "daemonsets", "ds":
 		return enhanceDaemonSets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
 
+	case "namespace", "namespaces", "ns":
+		return enhanceNamespaces(kubeconfigPath, context, modifiers, sortBy, outputFormat)
+
+	case "configmap", "configmaps", "cm":
+		return enhanceConfigMaps(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "secret", "secrets":
+		return enhanceSecrets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "job", "jobs":
+		return enhanceJobs(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "cronjob", "cronjobs", "cj":
+		return enhanceCronJobs(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "replicaset", "replicasets", "rs":
+		return enhanceReplicaSets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
 	default:
-		return fmt.Errorf("'with' modifiers not supported for resource type: %s", resource)
+		// Unsupported resource type — fall back to kubectl passthrough
+		return fmt.Errorf("enhanced output not available for: %s (use kubectl get %s)", resource, resource)
 	}
 }
 

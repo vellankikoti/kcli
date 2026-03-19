@@ -29,14 +29,28 @@ const (
 type ResourceTableOpts struct {
 	Scope       ResourceScope
 	ClusterName string // current context name, used for CLUSTER column
+	ShowNumber  bool   // add a # serial number column (default true)
 }
 
 // NewResourceTable creates a Table pre-configured for Kubernetes resource display.
-// It automatically adds a NAMESPACE column (for ScopeNamespaced) or CLUSTER column
-// (for ScopeCluster) as the first column.
+// It automatically adds a # column and a NAMESPACE/CLUSTER column.
 func NewResourceTable(opts ResourceTableOpts) *Table {
 	table := NewTable()
 	table.Style = Rounded
+	table.AutoNumber = true // auto-populate # column during Render
+
+	// # column — always first, always visible
+	table.AddColumn(Column{
+		Name:     "#",
+		Priority: PriorityAlways,
+		MinWidth: 3,
+		MaxWidth: 5,
+		Align:    Right,
+		ColorFunc: func(string) lipgloss.Style {
+			return GetTheme().Muted
+		},
+		isAutoNum: true,
+	})
 
 	switch opts.Scope {
 	case ScopeNamespaced:
