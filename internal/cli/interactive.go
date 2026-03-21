@@ -259,7 +259,7 @@ func (a *app) showActionMenu(reader *bufio.Reader, resourceType, name, namespace
 	actions := actionsForResource(resourceType)
 
 	for {
-		// Display selected resource
+		// Display selected resource header
 		fmt.Fprintf(os.Stderr, "\n  %s %s\n",
 			theme.Header.Render(fmt.Sprintf(" %s ", name)),
 			theme.Muted.Render(fmt.Sprintf("(%s)", namespace)))
@@ -274,7 +274,7 @@ func (a *app) showActionMenu(reader *bufio.Reader, resourceType, name, namespace
 				fmt.Fprintf(os.Stderr, "  ")
 			}
 		}
-		fmt.Fprintf(os.Stderr, "  %s\n", theme.Muted.Render("[Q] Back"))
+		fmt.Fprintf(os.Stderr, "  %s\n", theme.Muted.Render("[Q] Back to list"))
 
 		// Read action
 		fmt.Fprintf(os.Stderr, "\n  %s", theme.Primary.Render("Action: "))
@@ -285,7 +285,7 @@ func (a *app) showActionMenu(reader *bufio.Reader, resourceType, name, namespace
 		input = strings.TrimSpace(strings.ToLower(input))
 
 		if input == "q" || input == "quit" || input == "back" || input == "" {
-			return nil
+			return nil // back to resource list
 		}
 
 		// Build and execute the kubectl command
@@ -303,9 +303,11 @@ func (a *app) showActionMenu(reader *bufio.Reader, resourceType, name, namespace
 			fmt.Fprintf(os.Stderr, "\n  %s\n", theme.Error.Render(fmt.Sprintf("Error: %v", err)))
 		}
 
-		fmt.Fprintln(os.Stderr)
-		// After action, return to resource selection (not action menu)
-		return nil
+		// Stay on the SAME resource — loop back to action menu
+		// User sees logs, then can immediately describe, exec, etc.
+		// Only [Q] goes back to resource selection.
+		fmt.Fprintf(os.Stderr, "\n%s\n",
+			theme.Muted.Render("  ─────────────────────────────────────"))
 	}
 }
 
