@@ -227,22 +227,39 @@ func hasWithModifier(args []string) bool {
 // enhanceableResources is the set of resource types that kcli can render with
 // beautiful colored tables via client-go (instead of plain kubectl passthrough).
 var enhanceableResources = map[string]bool{
+	// Core workloads
 	"pod": true, "pods": true, "po": true,
 	"deployment": true, "deployments": true, "deploy": true,
-	"service": true, "services": true, "svc": true,
-	"node": true, "nodes": true,
-	"namespace": true, "namespaces": true, "ns": true,
 	"statefulset": true, "statefulsets": true, "sts": true,
 	"daemonset": true, "daemonsets": true, "ds": true,
 	"replicaset": true, "replicasets": true, "rs": true,
-	"persistentvolume": true, "persistentvolumes": true, "pv": true,
-	"persistentvolumeclaim": true, "persistentvolumeclaims": true, "pvc": true,
-	"ingress": true, "ingresses": true, "ing": true,
-	"event": true, "events": true, "ev": true,
-	"configmap": true, "configmaps": true, "cm": true,
-	"secret": true, "secrets": true,
 	"job": true, "jobs": true,
 	"cronjob": true, "cronjobs": true, "cj": true,
+	// Networking
+	"service": true, "services": true, "svc": true,
+	"ingress": true, "ingresses": true, "ing": true,
+	"endpoints": true, "ep": true,
+	"networkpolicy": true, "networkpolicies": true, "netpol": true,
+	// Config & storage
+	"configmap": true, "configmaps": true, "cm": true,
+	"secret": true, "secrets": true,
+	"persistentvolume": true, "persistentvolumes": true, "pv": true,
+	"persistentvolumeclaim": true, "persistentvolumeclaims": true, "pvc": true,
+	"storageclass": true, "storageclasses": true, "sc": true,
+	// RBAC
+	"serviceaccount": true, "serviceaccounts": true, "sa": true,
+	"role": true, "roles": true,
+	"rolebinding": true, "rolebindings": true,
+	"clusterrole": true, "clusterroles": true,
+	"clusterrolebinding": true, "clusterrolebindings": true,
+	// Cluster
+	"namespace": true, "namespaces": true, "ns": true,
+	"node": true, "nodes": true,
+	"event": true, "events": true, "ev": true,
+	// Policy & quotas
+	"horizontalpodautoscaler": true, "horizontalpodautoscalers": true, "hpa": true,
+	"limitrange": true, "limitranges": true,
+	"resourcequota": true, "resourcequotas": true,
 }
 
 // shouldUseEnhancedGet returns true when args represent a simple resource list

@@ -115,6 +115,39 @@ func EnhancedGet(kubeconfigPath, context, namespace string, resource string, mod
 	case "replicaset", "replicasets", "rs":
 		return enhanceReplicaSets(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
 
+	case "serviceaccount", "serviceaccounts", "sa":
+		return enhanceServiceAccounts(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "endpoints", "ep":
+		return enhanceEndpoints(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "horizontalpodautoscaler", "horizontalpodautoscalers", "hpa":
+		return enhanceHPAs(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "networkpolicy", "networkpolicies", "netpol":
+		return enhanceNetworkPolicies(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "role", "roles":
+		return enhanceRoles(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "rolebinding", "rolebindings":
+		return enhanceRoleBindings(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "clusterrole", "clusterroles":
+		return enhanceClusterRoles(kubeconfigPath, context, modifiers, sortBy, outputFormat)
+
+	case "clusterrolebinding", "clusterrolebindings":
+		return enhanceClusterRoleBindings(kubeconfigPath, context, modifiers, sortBy, outputFormat)
+
+	case "storageclass", "storageclasses", "sc":
+		return enhanceStorageClasses(kubeconfigPath, context, modifiers, sortBy, outputFormat)
+
+	case "limitrange", "limitranges":
+		return enhanceLimitRanges(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
+	case "resourcequota", "resourcequotas":
+		return enhanceResourceQuotas(kubeconfigPath, context, namespace, modifiers, allNamespaces, sortBy, outputFormat)
+
 	default:
 		// Unsupported resource type — fall back to kubectl passthrough
 		return fmt.Errorf("enhanced output not available for: %s (use kubectl get %s)", resource, resource)
