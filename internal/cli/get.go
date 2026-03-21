@@ -442,17 +442,16 @@ func (a *app) runInteractiveAfterGet(args []string) error {
 	}
 
 	// Query resource names via kubectl
-	nsFlag := ""
+	queryArgs := []string{"get", resourceType, "-o", `jsonpath={range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}`}
 	if allNS {
-		nsFlag = "-A"
+		queryArgs = append(queryArgs, "-A")
 	} else if namespace != "" {
-		nsFlag = "-n " + namespace
+		queryArgs = append(queryArgs, "-n", namespace)
 	}
 
-	cmdStr := fmt.Sprintf("get %s -o jsonpath='{range .items[*]}{.metadata.namespace}{\"\\t\"}{.metadata.name}{\"\\n\"}{end}' %s", resourceType, nsFlag)
-	out, err := a.captureKubectl(strings.Fields(cmdStr))
+	out, err := a.captureKubectl(queryArgs)
 	if err != nil {
-		return nil // silently skip interactive if query fails
+		return fmt.Errorf("interactive: failed to query resources: %w", err)
 	}
 
 	var names, namespaces []string
@@ -609,7 +608,8 @@ Examples:
 			// on a TTY (e.g. "kcli get pods", "kcli get deployments -A"),
 			// route through the enhanced engine for colored tables with
 			// status icons, responsive columns, and presentation-ready output.
-			if shouldUseEnhancedGet(clean) {
+			// -i flag forces enhanced mode (needs table for interactive selection).
+			if interactive || shouldUseEnhancedGet(clean) {
 				if err := a.runEnhancedGet(clean); err != nil {
 					return err
 				}
